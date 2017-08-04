@@ -230,10 +230,23 @@
 
 (defun ->setup (&optional (stream *curr-stream*))
   (msg "Starting setup...")
+  (msg "Waiting for players...")
   (let ((answer (receive-message stream)))
     (setf *curr-game* (assoc->game answer))
     (send-message `((:ready . ,(game-my-id *curr-game*)))))
   (msg "Setup finished..."))
+
+(defun send-pass-message (&optional (stream *curr-stream*))
+  (send-message `((:pass . ((:punter . ,(game-my-id *curr-game*)))))
+                stream))
+
+(defun assoc->winner (scores)
+  (let ((table
+         (reverse
+          (sort scores (lambda (a b)
+                         (< (cdr (assoc 'score a))
+                            (cdr (assoc 'score b))))))))
+    (values (cdr (assoc 'punter (first table))) table)))
 
 (defun ->play (&optional (stream *curr-stream*))
   (msg "Starting play...")
@@ -244,11 +257,23 @@
          (multiple-value-bind (moves scores)
              (assoc->moves moves-or-stop)
            (game-apply-moves *curr-game* moves)
-           (msg "Calculating... ")
-           (msg "Sending response...")
-           (send-message `((:pass . ((:punter . ,(game-my-id *curr-game*))))))
-           (when scores
-             (return-from play-loop))))))
+           (if scores
+               (progn
+                 (msg "Received stop message, stopping...")
+                 (multiple-value-bind (winner table)
+                     (assoc->winner scores)
+                   (let* ((my-id (game-my-id *curr-game*))
+                          (victory (= winner my-id))
+                          (victory-or-defeat-string
+                           (if victory "VICTORY:)" "DEFEAT:(")))
+                     (msg "~a (Our id is ~a) Table: ~a"
+                          victory-or-defeat-string table my-id))
+                   (return-from play-loop)))
+               (progn
+                 (msg "Calculating... ")
+                 (msg "Sending response...")
+                 (send-pass-message)))
+           ))))
   (msg "Play finished..."))
 
 (defun cycle ()
