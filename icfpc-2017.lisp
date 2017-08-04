@@ -52,7 +52,7 @@
     (let ((len (parse-integer (concatenate 'string len-seq))))
       (assert (> len 0))
       (let ((decodable (receive len stream)))
-        (msg "Received: \"~a\"..." decodable)
+        (msg "Received: \"~a\"" decodable)
         (decode-message decodable)))))
 
 (defun @test-receive-message ()
