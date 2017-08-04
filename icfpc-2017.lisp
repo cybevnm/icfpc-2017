@@ -239,9 +239,6 @@
     (send-message `((:ready . ,(game-my-id *curr-game*)))))
   (msg "Setup finished..."))
 
-(defun send-pass-message (&optional (stream *curr-stream*))
-  (send-message `((:pass . ((:punter . ,(game-my-id *curr-game*)))))
-                stream))
 
 (defun assoc->winner (scores)
   (let ((table
@@ -250,6 +247,22 @@
                          (< (cdr (assoc :score a))
                             (cdr (assoc :score b))))))))
     (values (cdr (assoc :punter (first table))) table)))
+
+(defun !pass (&optional (game *curr-game*))
+  (make-instance 'move :type :pass
+                 :punter-id (game-my-id game)))
+
+(defun !ai (&optional (game *curr-game*))
+  (!pass game))
+
+(defun send-pass-message (&optional (stream *curr-stream*))
+  (send-message `((:pass . ((:punter . ,(game-my-id *curr-game*)))))
+                stream))
+
+(defun send-decision-message (decision &optional (stream *curr-stream*))
+  (ecase (move-type decision)
+    (:pass (send-pass-message stream))
+    (:claim (send-pass-message stream))))
 
 (defun ->play (&optional (stream *curr-stream*))
   (msg "Starting play...")
@@ -275,7 +288,7 @@
                (progn
                  (msg "Calculating... ")
                  (msg "Sending response...")
-                 (send-pass-message)))
+                 (send-decision-message (!ai) stream)))
            ))))
   (msg "Play finished..."))
 
