@@ -269,7 +269,7 @@
                           (victory (= winner my-id))
                           (victory-or-defeat-string
                            (if victory "VICTORY:)" "DEFEAT:(")))
-                     (msg "~a (Our id is ~a) Table: ~a"
+                     (msg "[~a]   [Our id is ~a]   [Table: ~a]"
                           victory-or-defeat-string my-id table))
                    (return-from play-loop)))
                (progn
