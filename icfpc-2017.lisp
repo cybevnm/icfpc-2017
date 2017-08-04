@@ -248,21 +248,40 @@
                             (cdr (assoc :score b))))))))
     (values (cdr (assoc :punter (first table))) table)))
 
+(defun !claim (&optional (game *curr-game*))
+  (let* ((rivers (game-rivers game))
+         (river (find-if (lambda (river)
+                           (not (river-claimed-by river)))
+                         rivers)))
+    (when river
+      (make-instance 'move :type :claim
+                     :punter-id (game-my-id game)
+                     :source (site-id (river-source river))
+                     :target (site-id (river-target river))))))
+
 (defun !pass (&optional (game *curr-game*))
   (make-instance 'move :type :pass
                  :punter-id (game-my-id game)))
 
 (defun !ai (&optional (game *curr-game*))
-  (!pass game))
+  (or (!claim game) (!pass game)))
 
 (defun send-pass-message (&optional (stream *curr-stream*))
   (send-message `((:pass . ((:punter . ,(game-my-id *curr-game*)))))
                 stream))
 
-(defun send-decision-message (decision &optional (stream *curr-stream*))
-  (ecase (move-type decision)
+(defun send-claim-message (move &optional (stream *curr-stream*))
+  (assert (move-source move))
+  (assert (move-target move))
+  (send-message `((:claim . ((:punter . ,(game-my-id *curr-game*))
+                             (:source . ,(move-source move))
+                             (:target . ,(move-target move)))))
+                stream))
+
+(defun send-decision-message (move &optional (stream *curr-stream*))
+  (ecase (move-type move)
     (:pass (send-pass-message stream))
-    (:claim (send-pass-message stream))))
+    (:claim (send-claim-message move stream))))
 
 (defun ->play (&optional (stream *curr-stream*))
   (msg "Starting play...")
