@@ -65,8 +65,10 @@
    (y :initarg :y :reader site-y)))
 
 (defclass river ()
-  ((begin :initarg :source :reader river-source)
-   (end :initarg :target :reader river-target)
+  ((begin :initarg :source :reader river-source
+          :documentation "Site object.")
+   (end :initarg :target :reader river-target
+        :documentation "Site object.")
    (claimed-by :initform nil :accessor river-claimed-by
                :documentation "NIL if is not claimed, otherwise
                integer id of a punter who claimed the river.")))
