@@ -247,9 +247,9 @@
   (let ((table
          (reverse
           (sort scores (lambda (a b)
-                         (< (cdr (assoc 'score a))
-                            (cdr (assoc 'score b))))))))
-    (values (cdr (assoc 'punter (first table))) table)))
+                         (< (cdr (assoc :score a))
+                            (cdr (assoc :score b))))))))
+    (values (cdr (assoc :punter (first table))) table)))
 
 (defun ->play (&optional (stream *curr-stream*))
   (msg "Starting play...")
@@ -270,7 +270,7 @@
                           (victory-or-defeat-string
                            (if victory "VICTORY:)" "DEFEAT:(")))
                      (msg "~a (Our id is ~a) Table: ~a"
-                          victory-or-defeat-string table my-id))
+                          victory-or-defeat-string my-id table))
                    (return-from play-loop)))
                (progn
                  (msg "Calculating... ")
