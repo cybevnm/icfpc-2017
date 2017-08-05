@@ -19,6 +19,7 @@
 (defparameter *curr-socket* nil)
 (defparameter *curr-stream* nil)
 (defparameter *curr-game* nil)
+(defparameter *render-pics* t)
 
 (define-condition icfpc-2017-condition (error)
   ((text :initarg :text :reader text)))
@@ -62,7 +63,11 @@
 (defclass site ()
   ((id :initarg :id :reader site-id)
    (x :initarg :x :reader site-x)
-   (y :initarg :y :reader site-y)))
+   (y :initarg :y :reader site-y)
+   (rivers :initform (make-array 100 :adjustable t :fill-pointer 0)
+           :reader site-rivers :documentation "Adjacent rivers.")
+   (mine :initform nil :accessor site-mine-p
+         :documentation "TRUE if the site is a mine.")))
 
 (defclass river ()
   ((begin :initarg :source :reader river-source
@@ -71,7 +76,14 @@
         :documentation "Site object.")
    (claimed-by :initform nil :accessor river-claimed-by
                :documentation "NIL if is not claimed, otherwise
-               integer id of a punter who claimed the river.")))
+               integer id of a punter who claimed the river.")
+   (mark :initform nil :accessor river-mark)))
+
+(defun river-other-end (river site)
+  (cond
+    ((eq site (river-source river)) (river-target river))
+    ((eq site (river-target river)) (river-source river))
+    (t (assert nil))))
 
 (defclass game ()
   ((my-id :initarg :my-id :reader game-my-id)
@@ -83,12 +95,12 @@
    (mines :initarg :mines :reader game-mines
           :documentation "Array of sites which are mines")))
 
-(defun game-find-river-by-source-and-target (game source target)
+(defun game-find-river-by-source-id-and-target-id (game source target)
   (find-if (lambda (river)
-             (or (and (= (site-id (river-source river)) source)
-                      (= (site-id (river-target river)) target))
-                 (and (= (site-id (river-source river)) target)
-                      (= (site-id (river-target river)) source))))
+             (or (and (= (site-id (site-id (river-source river))) source)
+                      (= (site-id (site-id (river-target river))) target))
+                 (and (= (site-id (site-id (river-source river))) target)
+                      (= (site-id (site-id (river-target river))) source))))
            (game-rivers game)))
 
 (defun game-apply-move (game move)
@@ -103,6 +115,11 @@
   (loop
      :for move :being :the :elements :of moves
      :do (game-apply-move game move)))
+
+(defun game-clean-rivers-marks (game)
+  (loop
+     :for river :across (game-rivers game)
+     :do (setf (river-mark river) nil)))
 
 (defclass move ()
   ((punter-id :initarg :punter-id :reader move-punter-id
@@ -130,12 +147,14 @@
   "SITES is an array of sites"
   (let* ((source-id (cdr (assoc :source assoc)))
          (target-id (cdr (assoc :target assoc)))
-         (result (make-instance 'river
-                                :source (find-site-by-id sites source-id)
-                                :target (find-site-by-id sites target-id))))
+         (source (find-site-by-id sites source-id))
+         (target (find-site-by-id sites target-id))
+         (result (make-instance 'river :source source :target target)))
     ;; Just checking...
-    (assert (river-source result))
-    (assert (river-target result))
+    (assert source)
+    (assert target)
+    (vector-push-extend result (site-rivers source))
+    (vector-push-extend result (site-rivers target))
     result))
 
 (defun assoc->move (assoc)
@@ -196,9 +215,11 @@
                                 (assoc->river river-assoc sites) arr))
                              arr)
                    :mines (let ((arr (make-array 10 :adjustable t :fill-pointer 0)))
-                             (dolist (mine-id mines-list)
-                               (vector-push-extend
-                                (find-site-by-id sites mine-id) arr))
+                            (dolist (mine-id mines-list)
+                              (let ((mine (find-site-by-id sites mine-id)))
+                                (assert mine)
+                                (setf (site-mine-p mine) t)
+                                (vector-push-extend mine arr)))
                              arr))))
 
 (defun @test-assoc->game ()
@@ -250,16 +271,44 @@
                             (cdr (assoc :score b))))))))
     (values (cdr (assoc :punter (first table))) table)))
 
+
+(defparameter *max-depth* 2)
+(defun !claim-descent (site my-id curr-depth)
+  (if (> curr-depth *max-depth*)
+      nil
+      (let ((rivers (site-rivers site)))
+        (loop
+           :for river :across rivers
+           :do (progn
+                 (msg "RIVER ~a ~a"
+                      (site-id (river-source river))
+                      (site-id (river-target river)))
+                 (let ((claimer (river-claimed-by river)))
+                   (cond
+                     ((null claimer)
+                      (return-from !claim-descent
+                        (make-instance 'move :type :claim
+                                       :punter-id my-id
+                                       :source (site-id (river-source river))
+                                       :target (site-id (river-target river)))))
+                     ((and (= claimer my-id)
+                           (not (river-mark river)))
+                      (setf (river-mark river) t)
+                      (let ((move (!claim-descent (river-other-end river site)
+                                                  my-id
+                                                  (1+ curr-depth))))
+                        (when move (return-from !claim-descent move)))))))))))
+
 (defun !claim (&optional (game *curr-game*))
-  (let* ((rivers (game-rivers game))
-         (river (find-if (lambda (river)
-                           (not (river-claimed-by river)))
-                         rivers)))
-    (when river
-      (make-instance 'move :type :claim
-                     :punter-id (game-my-id game)
-                     :source (site-id (river-source river))
-                     :target (site-id (river-target river))))))
+  (let* ((mines (game-mines game)))
+    (loop
+       :for mine :across mines
+       :do (progn
+             (msg "MINE ~a" (site-id mine))
+             (let ((move (!claim-descent mine (game-my-id game) 0)))
+               (game-clean-rivers-marks game)
+               (when move
+                 (return-from !claim move)))))))
 
 (defun !pass (&optional (game *curr-game*))
   (make-instance 'move :type :pass
@@ -285,32 +334,38 @@
     (:pass (send-pass-message stream))
     (:claim (send-claim-message move stream))))
 
+
+
 (defun ->play (&optional (stream *curr-stream*))
   (msg "Starting play...")
-  (block play-loop
-    (loop
-       (let ((moves-or-stop (receive-message stream)))
-         (msg "Applying moves to game...")
-         (multiple-value-bind (moves scores)
-             (assoc->moves moves-or-stop)
-           (game-apply-moves *curr-game* moves)
-           (if scores
-               (progn
-                 (msg "Received stop message, stopping...")
-                 (multiple-value-bind (winner table)
-                     (assoc->winner scores)
-                   (let* ((my-id (game-my-id *curr-game*))
-                          (victory (= winner my-id))
-                          (victory-or-defeat-string
-                           (if victory "VICTORY:)" "DEFEAT:(")))
-                     (msg "[~a]   [Our id is ~a]   [Table: ~a]"
-                          victory-or-defeat-string my-id table))
-                   (return-from play-loop)))
-               (progn
-                 (msg "Calculating... ")
-                 (msg "Sending response...")
-                 (send-decision-message (!ai) stream)))
-           ))))
+  (let ((pic-index 0))
+    (block play-loop
+      (loop
+         (let ((moves-or-stop (receive-message stream)))
+           (msg "Applying moves to game...")
+           (multiple-value-bind (moves scores)
+               (assoc->moves moves-or-stop)
+             (game-apply-moves *curr-game* moves)
+             (when *render-pics* 
+               (render-cl-dot-graph *curr-game* (format nil "pic-~a.png" pic-index))
+               (incf pic-index))
+             (if scores
+                 (progn
+                   (msg "Received stop message, stopping...")
+                   (multiple-value-bind (winner table)
+                       (assoc->winner scores)
+                     (let* ((my-id (game-my-id *curr-game*))
+                            (victory (= winner my-id))
+                            (victory-or-defeat-string
+                             (if victory "VICTORY:)" "DEFEAT:(")))
+                       (msg "[~a]   [Our id is ~a]   [Table: ~a]"
+                            victory-or-defeat-string my-id table))
+                     (return-from play-loop)))
+                 (progn
+                   (msg "Calculating... ")
+                   (msg "Sending response...")
+                   (send-decision-message (!ai) stream)))
+             )))))
   (msg "Play finished..."))
 
 (defun cycle ()
@@ -360,4 +415,43 @@
   (unwind-protect
        (cycle)
     (disconnect)))
+
+(defmethod cl-dot:graph-object-node ((graph game) (obj site))
+  (make-instance 'cl-dot:node
+                 :attributes `(:label ,(if (site-mine-p obj)
+                                           (format nil "~a (M)" (site-id obj))
+                                           (format nil "~a" (site-id obj)))
+                                      :style :solid
+                                      :color :black
+                                      :shape :box
+                                      :fontname "courier")))
+
+(defmethod cl-dot:graph-object-edges ((graph game))
+  (let ((arr (make-array 10 :adjustable t :fill-pointer 0)))
+    (loop
+       :for river :across (game-rivers graph)
+       :do (vector-push-extend
+            (list (river-source river)
+                  (river-target river)
+                  `(:color ,(cond
+                              ((null (river-claimed-by river))
+                               :black)
+                              ((= (river-claimed-by river) (game-my-id graph))
+                               :blue)
+                              (t :red))))
+            arr))
+    arr))
+
+(defmethod cl-dot:graph-object-points-to (graph (obj site))
+  nil)
+
+(defun render-cl-dot-graph (game filename)
+  (cl-dot:dot-graph
+   (cl-dot:generate-graph-from-roots game
+                                     (list (elt (game-sites game) 0)))
+                    filename
+                    :format :png
+                    :directed nil))
+
+
 

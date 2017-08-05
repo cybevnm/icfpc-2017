@@ -4,7 +4,8 @@
                :serapeum
                ;; :rutils
                :cl-json
-               :usocket)
+               :usocket
+               :cl-dot)
   :components ((:file :icfpc-2017)))
 
 ;; (asdf:defsystem icfpc-2015-test
