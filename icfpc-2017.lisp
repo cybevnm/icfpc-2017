@@ -411,11 +411,12 @@
 (defun receive-char (&optional (stream *curr-stream*) )
   (read-char stream))
 
-(defun main (&key (host *host*) (port *port*))
-  (connect host port)
-  (unwind-protect
-       (cycle)
-    (disconnect)))
+(defun main (&key (host *host*) (port *port*) (name *name*))
+  (let ((*name* name))
+    (connect host port)
+    (unwind-protect
+         (cycle)
+      (disconnect))))
 
 (defmethod cl-dot:graph-object-node ((graph game) (obj site))
   (make-instance 'cl-dot:node
