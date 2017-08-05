@@ -9,9 +9,11 @@
 (defparameter *host* "punter.inf.ed.ac.uk")
 (defparameter *port* 9064)
 (defparameter *curr-socket* nil)
-(defparameter *curr-stream* nil)
+(defparameter *curr-stream-out* nil)
+(defparameter *curr-stream-in* nil)
 (defparameter *curr-game* nil)
 (defparameter *render-pics* t)
+(defparameter *peeked-message* nil)
 
 (define-condition icfpc-2017-condition (error)
   ((text :initarg :text :reader text)))
@@ -30,23 +32,32 @@
   (json:decode-json-from-string decodable))
 
 
-(defun send-message (encodable &optional (stream *curr-stream*))
+(defun send-message (encodable &optional (stream-out *curr-stream*))
   (let ((encoded (encode-message encodable)))
-    (msg "Sending: \"~a\"..." encoded)
-    (send encoded stream)))
+    ;(msg "Sending: \"~a\"..." encoded)
+    (send encoded stream-out)))
 
-(defun receive-message (&optional (stream *curr-stream*))
-  (let ((curr-char)
-        (len-seq (make-array 10 :fill-pointer 0)))
-    (loop
-       :do (setf curr-char (receive-char stream))
-       :while (not (char= curr-char #\:))
-       :do (vector-push curr-char len-seq))
-    (let ((len (parse-integer (concatenate 'string len-seq))))
-      (assert (> len 0))
-      (let ((decodable (receive len stream)))
-        (msg "Received: \"~a\"" decodable)
-        (decode-message decodable)))))
+(defun receive-message (&optional (stream-in *curr-stream-in*))
+  (if *peeked-message*
+      (let ((result *peeked-message*))
+        (setf *peeked-message* nil)
+        result)
+      (let ((curr-char)
+            (len-seq (make-array 10 :fill-pointer 0)))
+        (loop
+           :do (setf curr-char (receive-char stream-in))
+           :while (not (char= curr-char #\:))
+           :do (vector-push curr-char len-seq))
+        (let ((len (parse-integer (concatenate 'string len-seq))))
+          (assert (> len 0))
+          (let ((decodable (receive len stream-in)))
+            ;(msg "Received: \"~a\"" decodable)
+            (decode-message decodable))))))
+
+(defun peek-message (&optional (stream-in *curr-stream-in*))
+  (let ((message (receive-message stream-in)))
+    (setf *peeked-message* message)
+    message))
 
 (defun @test-receive-message ()
   (with-input-from-string (stream "14:{\"you\":\"user\"}")
@@ -67,9 +78,11 @@
    (end :initarg :target :reader river-target
         :documentation "Site object.")
    (claimed-by :initform nil :accessor river-claimed-by
+               :initarg :claimed-by
                :documentation "NIL if is not claimed, otherwise
                integer id of a punter who claimed the river.")
-   (mark :initform nil :accessor river-mark)))
+   (mark :initform nil :accessor river-mark
+         :initarg :mark)))
 
 (defun river-other-end (river site)
   (cond
@@ -142,7 +155,10 @@
          (target-id (cdr (assoc :target assoc)))
          (source (find-site-by-id sites source-id))
          (target (find-site-by-id sites target-id))
-         (result (make-instance 'river :source source :target target)))
+         (claimed-by (cdr (assoc :claimed-by assoc)))
+         (mark (cdr (assoc :mark assoc)))
+         (result (make-instance 'river :source source :target target
+                                :claimed-by claimed-by :mark mark)))
     ;; Just checking...
     (assert source)
     (assert target)
@@ -168,25 +184,31 @@
   (assoc->move '((:CLAIM (:PUNTER . 0) (:SOURCE . 0) (:TARGET . 1)))) 
   (assoc->move '((:PASS (:PUNTER . 0)))))
 
-(defun assoc->moves (assoc)
+(defun assoc->moves-and-state (assoc)
   (let* ((moves-cons (cdr (assoc :move assoc)))
-         (stop-cons (cdr (assoc :stop assoc))))
+         (stop-cons (cdr (assoc :stop assoc)))
+         (state-cons (cdr (assoc :state assoc))))
     (let ((moves-list (cdr (assoc :moves (or moves-cons stop-cons))))
           (moves-arr (make-array 10 :adjustable t :fill-pointer 0))
-          (scores))
+          (scores)
+          (game))
       (dolist (move moves-list)
         (vector-push-extend (assoc->move move) moves-arr))
       (when stop-cons
         (let ((scores-list (cdr (assoc :scores stop-cons))))
           (setf scores scores-list)))
-      (values moves-arr scores))))
+      (when state-cons
+        (let ((*read-eval* nil))
+          (with-input-from-string (s state-cons)
+            (setf game (assoc->game (read s))))))
+      (values moves-arr scores game))))
 
-
-(defun @test-assoc->moves ()
-  (assoc->moves
+(defun @test-assoc->moves-and-state ()
+  (assoc->moves-and-state
    '((:MOVE
       (:MOVES ((:CLAIM (:PUNTER . 0) (:SOURCE . 0) (:TARGET . 1)))
-       ((:CLAIM (:PUNTER . 1) (:SOURCE . 1) (:TARGET . 2))))))))
+       ((:CLAIM (:PUNTER . 1) (:SOURCE . 1) (:TARGET . 2))))
+      ))))
 
 (defun assoc->game (assoc)
   (let* ((id (cdr (assoc :punter assoc)))
@@ -213,7 +235,25 @@
                                 (assert mine)
                                 (setf (site-mine-p mine) t)
                                 (vector-push-extend mine arr)))
-                             arr))))
+                            arr))))
+
+(defun game->assoc (game)
+  `((:punter . ,(game-my-id game)) (:punters . ,(game-punters-num game))
+    (:map
+     (:sites ,@(loop
+                  :for site :across (game-sites game)
+                  :collect `((:id . ,(site-id site))
+                             (:x . ,(site-x site))
+                             (:y . ,(site-y site)))))
+     (:rivers ,@(loop
+                   :for river :across (game-rivers game)
+                   :collect `((:source . ,(site-id (river-source river)))
+                              (:target . ,(site-id (river-target river)))
+                              (:claimed-by . ,(river-claimed-by river))
+                              (:mark . ,(river-mark river)))))
+     (:mines ,@(loop
+                  :for mine :across (game-mines game)
+                  :collect (site-id mine))))))
 
 (defun @test-assoc->game ()
   (let* ((assoc
@@ -235,26 +275,34 @@
     (assert (= (length (game-sites game)) 8)))
   (values))
 
-(defun ->cleanup (&optional (stream *curr-stream*))
-  (declare (ignore stream))
+(defun ->cleanup ()
   (setf *curr-game* nil))
 
-(defun ->handshake (&optional (stream *curr-stream*))
+(defun ->handshake (&optional (stream-out *curr-stream-out*)
+                      (stream-in *curr-stream-in*))
   (msg "Starting handshake...")
-  (send-message `((:me . ,*name*)))
-  (let ((answer (receive-message stream)))
+  (send-message `((:me . ,*name*)) stream-out)
+  (let ((answer (receive-message stream-in)))
     (when (not (string= (cdr (assoc :you answer)) *name*))
       (error 'icfpc-2017-condition :text "Wrong handshake answer")))
   (msg "Handshake finished..."))
 
-(defun ->setup (&optional (stream *curr-stream*))
+(defun ->setup (type &optional (stream-out *curr-stream-out*)
+                      (stream-in *curr-stream-in*))
   (msg "Starting setup...")
   (msg "Waiting for players...")
-  (let ((answer (receive-message stream)))
+  (let ((answer (receive-message stream-in)))
     (setf *curr-game* (assoc->game answer))
-    (send-message `((:ready . ,(game-my-id *curr-game*)))))
+    (let ((ready-chunk `(:ready . ,(game-my-id *curr-game*)))
+          (state-chunk `(:state . ,(let ((*print-pretty* nil))
+                                     (with-output-to-string (s)
+                                       (write (game->assoc *curr-game*)
+                                              :stream s))))))
+      (send-message (ecase type
+                      (:online (list ready-chunk))
+                      (:offline (list ready-chunk state-chunk)))
+                    stream-out)))
   (msg "Setup finished..."))
-
 
 (defun assoc->winner (scores)
   (let ((table
@@ -310,37 +358,55 @@
 (defun !ai (&optional (game *curr-game*))
   (or (!claim game) (!pass game)))
 
-(defun send-pass-message (&optional (stream *curr-stream*))
-  (send-message `((:pass . ((:punter . ,(game-my-id *curr-game*)))))
-                stream))
+(defun send-pass-message (game type &optional (stream-out *curr-stream-out*))
+  (let ((pass-chunk `(:pass . ((:punter . ,(game-my-id *curr-game*)))))
+        (state-chunk `(:state . ,(let ((*print-pretty* nil))
+                                   (with-output-to-string (s)
+                                     (write (game->assoc game)
+                                            :stream s))))))
+    (send-message (ecase type
+                    (:online (list pass-chunk))
+                    (:offline (list pass-chunk state-chunk)))
+                  stream-out)))
 
-(defun send-claim-message (move &optional (stream *curr-stream*))
+(defun send-claim-message (move game type &optional (stream-out *curr-stream-out*))
   (assert (move-source move))
   (assert (move-target move))
-  (send-message `((:claim . ((:punter . ,(game-my-id *curr-game*))
-                             (:source . ,(move-source move))
-                             (:target . ,(move-target move)))))
-                stream))
+  (let ((claim-chunk `(:claim . ((:punter . ,(game-my-id *curr-game*))
+                                 (:source . ,(move-source move))
+                                 (:target . ,(move-target move)))))
+        (state-chunk `(:state . ,(let ((*print-pretty* nil))
+                                   (with-output-to-string (s)
+                                     (write (game->assoc game)
+                                            :stream s))))))
+    (send-message (ecase type
+                    (:online (list claim-chunk))
+                    (:offline (list claim-chunk state-chunk)))
+                  stream-out)))
 
-(defun send-decision-message (move &optional (stream *curr-stream*))
+(defun send-decision-message (move game type &optional (stream-out *curr-stream-out*))
   (ecase (move-type move)
-    (:pass (send-pass-message stream))
-    (:claim (send-claim-message move stream))))
+    (:pass (send-pass-message game type stream-out))
+    (:claim (send-claim-message move game type stream-out))))
 
-
-
-(defun ->play (&optional (stream *curr-stream*))
+(defun ->play (type &optional (stream-out *curr-stream-out*)
+                 (stream-in *curr-stream-in*))
   (msg "Starting play...")
   (let ((pic-index 0))
     (block play-loop
       (loop
-         (let ((moves-or-stop (receive-message stream)))
+         ;; Play.
+         (let ((moves-or-stop-and-state (receive-message stream-in)))
            (msg "Applying moves to game...")
-           (multiple-value-bind (moves scores)
-               (assoc->moves moves-or-stop)
+           (multiple-value-bind (moves scores game)
+               (assoc->moves-and-state moves-or-stop-and-state)
+             (when game
+               (setf *curr-game* game))
+             (assert *curr-game*)
              (game-apply-moves *curr-game* moves)
              (when *render-pics* 
-               (render-cl-dot-graph *curr-game* (format nil "pic-~a.png" pic-index))
+               (render-cl-dot-graph *curr-game*
+                                    (format nil "pic-~a.png" pic-index))
                (incf pic-index))
              (if scores
                  (progn
@@ -348,34 +414,39 @@
                    (multiple-value-bind (winner table)
                        (assoc->winner scores)
                      (let* ((my-id (game-my-id *curr-game*))
-                            (victory (= winner my-id))
-                            (victory-or-defeat-string
-                             (if victory "VICTORY:)" "DEFEAT:(")))
-                       (msg "[~a]   [Our id is ~a]   [Table: ~a]"
-                            victory-or-defeat-string my-id table))
+                            (victory (= winner my-id)))
+                       (msg "[Our id is ~a]   [Table: ~a]" my-id table))
                      (return-from play-loop)))
                  (progn
                    (msg "Calculating... ")
                    (msg "Sending response...")
-                   (send-decision-message (!ai) stream)))
+                   (send-decision-message (!ai) *curr-game* type stream-out)))
              )))))
   (msg "Play finished..."))
 
-(defun cycle ()
+(defun cycle (type)
+  "TYPE is any of :ONLINE :OFFLINE."
   (msg "Starting cycle...")
   (->cleanup)
   (->handshake)
-  (->setup)
-  (->play)
-  (msg "Cycle finished...")
-  )
+  (let* ((message (peek-message))
+         (phase (if (cdr (assoc :punter message))
+                    :setup :play)))
+    (ecase phase
+      (:setup (->setup type)
+              (->play type))
+      (:play (->play type))))
+  
+  (msg "Cycle finished..."))
 
 (defun connect (&optional (host *host*) (port *port*))
   (msg "Connecting ~a ~a..." host port)
   (setf *curr-socket*
         (usocket:socket-connect host port))
   (when *curr-socket*
-    (setf *curr-stream*
+    (setf *curr-stream-in*
+          (usocket:socket-stream *curr-socket*))
+    (setf *curr-stream-out*
           (usocket:socket-stream *curr-socket*)))
   (values))
 
@@ -384,31 +455,38 @@
   (when *curr-socket*
     (usocket:socket-close *curr-socket*)
     (setf *curr-socket* nil)
-    (setf *curr-stream* nil))
+    (setf *curr-stream-in* nil)
+    (setf *curr-stream-out* nil))
   (values))
 
-(defun send (string &optional (stream *curr-stream*))
-  (format stream string)
-  (force-output stream)
+(defun send (string &optional (stream-out *curr-stream-out*))
+  (format stream-out string)
+  (force-output stream-out)
   (values))
 
-(defun receive (len &optional (stream *curr-stream*))
+(defun receive (len &optional (stream-in *curr-stream*))
   (let* ((seq (make-array len
-                          :element-type (stream-element-type stream)
+                          :element-type (stream-element-type stream-in)
                           :fill-pointer t))
-         (len (read-sequence seq stream))
+         (len (read-sequence seq stream-in))
          (subseq (subseq seq 0 len)))
     subseq))
 
-(defun receive-char (&optional (stream *curr-stream*) )
-  (read-char stream))
+(defun receive-char (&optional (stream-in *curr-stream*) )
+  (read-char stream-in))
 
-(defun main (&key (host *host*) (port *port*) (name *name*))
+(defun main-online (&key (host *host*) (port *port*) (name *name*))
   (let ((*name* name))
     (connect host port)
     (unwind-protect
-         (cycle)
+         (cycle :online)
       (disconnect))))
+
+(defun main-offline ()
+  (let ((*render-pics* nil)
+        (*curr-stream-in* *standard-input*)
+        (*curr-stream-out* *standard-output*))
+    (cycle :offline)))
 
 (defmethod cl-dot:graph-object-node ((graph game) (obj site))
   (make-instance 'cl-dot:node
