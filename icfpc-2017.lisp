@@ -1,16 +1,8 @@
 ;;;; ICFPC2017 solution code chunks.
-;;;; Copyright (C) 2017 cybevnm 
+;;;; Copyright (C) 2017 cybevnm
 
 (defpackage :icfpc-2017
-  (:use :cl
-        :alexandria
-        :anaphora
-        :serapeum)
-  ;; (:shadowing-import-from
-  ;;  :alexandria
-  ;;  :copy-stream
-  ;;  :copy-file)
-  )
+  (:use :cl))
 (in-package :icfpc-2017)
 
 (defparameter *name* "cvnm")
