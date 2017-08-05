@@ -534,6 +534,3 @@
                     filename
                     :format :png
                     :directed nil))
-
-
-
