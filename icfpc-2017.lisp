@@ -414,8 +414,14 @@
                    (multiple-value-bind (winner table)
                        (assoc->winner scores)
                      (declare (ignore winner))
-                     (let* ((my-id (game-my-id *curr-game*)))
-                       (msg "[Our id is ~a]   [Table: ~a]" my-id table))
+                     (let* ((my-id (game-my-id *curr-game*))
+                            (position
+                             (position my-id
+                                       table
+                                       :key (lambda (row)
+                                              (cdr (assoc :punter row))))))
+                       (msg "[Position is ~a]   [Our id is ~a]   [Table: ~a]"
+                            position my-id table))
                      (return-from play-loop)))
                  (progn
                    (msg "Calculating... ")
