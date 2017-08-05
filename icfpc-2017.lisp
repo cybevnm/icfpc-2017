@@ -97,18 +97,19 @@
 
 (defun game-find-river-by-source-id-and-target-id (game source target)
   (find-if (lambda (river)
-             (or (and (= (site-id (site-id (river-source river))) source)
-                      (= (site-id (site-id (river-target river))) target))
-                 (and (= (site-id (site-id (river-source river))) target)
-                      (= (site-id (site-id (river-target river))) source))))
+             (or (and (= (site-id (river-source river)) source)
+                      (= (site-id (river-target river)) target))
+                 (and (= (site-id (river-source river)) target)
+                      (= (site-id (river-target river)) source))))
            (game-rivers game)))
 
 (defun game-apply-move (game move)
   (when (eq (move-type move) :claim)
     (let ((river
-           (game-find-river-by-source-and-target game
-                                                 (move-source move)
-                                                 (move-target move))))
+           (game-find-river-by-source-id-and-target-id
+            game
+            (move-source move)
+            (move-target move))))
       (setf (river-claimed-by river) (move-punter-id move)))))
 
 (defun game-apply-moves (game moves)
