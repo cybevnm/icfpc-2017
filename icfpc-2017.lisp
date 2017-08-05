@@ -499,18 +499,23 @@
                                       :fontname "courier")))
 
 (defmethod cl-dot:graph-object-edges ((graph game))
-  (let ((arr (make-array 10 :adjustable t :fill-pointer 0)))
+  (let ((arr (make-array 10 :adjustable t :fill-pointer 0))
+        (colors '((0 . "#FF0000") (1 . "#FFBF00") (2 . "#7FFF00")
+                  (3 . "#00FF3F") (4 . "#00FFFF") (5 . "#003FFF")
+                  (6 . "#7F00FF") (7 . "#FF00BF") (8 . "#FF0000"))))
     (loop
-       :for river :across (game-rivers graph)
-       :do (vector-push-extend
-            (list (river-source river)
-                  (river-target river)
-                  `(:color ,(cond
-                              ((null (river-claimed-by river))
-                               :black)
-                              ((= (river-claimed-by river) (game-my-id graph))
-                               :blue)
-                              (t :red))))
+       :for river( rs
+                   graph)(r-push-extend
+            (list (river-source river) (river-target river)
+                  (let* ((claimer (river-claimed-by river))
+                         (color (cdr (assoc claimer colors))))
+                    (msg "COLOR ~a" color)
+                    `(:color ,(cond
+                                ((null claimer) :black)
+                                ((= claimer (game-my-id graph)) :blue)
+                                (color color)
+                                (t :magneta))
+                      :style :bold)))
             arr))
     arr))
 
