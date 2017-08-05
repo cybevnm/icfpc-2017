@@ -27,7 +27,7 @@
 (defun msg (format &rest vals)
   (let ((effective-format
          (concatenate 'string "[LOG] " format "~%")))
-    (apply #'format t (cons effective-format vals)))
+    (apply #'format *error-output* (cons effective-format vals)))
   (values))
 
 (defun encode-message (encodable)
