@@ -509,8 +509,8 @@
                   (3 . "#00FF3F") (4 . "#00FFFF") (5 . "#003FFF")
                   (6 . "#7F00FF") (7 . "#FF00BF") (8 . "#FF0000"))))
     (loop
-       :for river( rs
-                   graph)(r-push-extend
+       :for river :across (game-rivers graph)
+       :do (vector-push-extend
             (list (river-source river) (river-target river)
                   (let* ((claimer (river-claimed-by river))
                          (color (cdr (assoc claimer colors))))
