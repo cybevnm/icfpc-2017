@@ -14,6 +14,7 @@
 (defparameter *curr-game* nil)
 (defparameter *render-pics* t)
 (defparameter *peeked-message* nil)
+(defparameter *print-received* t)
 
 (define-condition icfpc-2017-condition (error)
   ((text :initarg :text :reader text)))
@@ -51,7 +52,8 @@
         (let ((len (parse-integer (concatenate 'string len-seq))))
           (assert (> len 0))
           (let ((decodable (receive len stream-in)))
-            ;(msg "Received: \"~a\"" decodable)
+            (when *print-received*
+              (msg "Received: \"~a\"" decodable))
             (decode-message decodable))))))
 
 (defun peek-message (&optional (stream-in *curr-stream-in*))
