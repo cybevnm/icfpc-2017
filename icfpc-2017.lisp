@@ -12,9 +12,10 @@
 (defparameter *curr-stream-out* nil)
 (defparameter *curr-stream-in* nil)
 (defparameter *curr-game* nil)
-(defparameter *render-pics* t)
+(defparameter *render-pics* nil)
 (defparameter *peeked-message* nil)
-(defparameter *print-received* t)
+(defparameter *print-received* nil)
+(defparameter *print-sending* nil)
 
 (define-condition icfpc-2017-condition (error)
   ((text :initarg :text :reader text)))
@@ -35,7 +36,8 @@
 
 (defun send-message (encodable &optional (stream-out *curr-stream-out*))
   (let ((encoded (encode-message encodable)))
-    ;(msg "Sending: \"~a\"..." encoded)
+    (when *print-sending*
+      (msg "Sending: \"~a\"..." encoded))
     (send encoded stream-out)))
 
 (defun receive-message (&optional (stream-in *curr-stream-in*))
