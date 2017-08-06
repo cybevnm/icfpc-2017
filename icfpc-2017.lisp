@@ -106,12 +106,12 @@
    (mines :initarg :mines :reader game-mines
           :documentation "Array of sites which are mines")
 
-   (curr-mine-index :initarg :curr-mine-index :initform nil
-                    :accessor game-curr-mine-index
-                    :documentation "This is an index of mine we
-                    currently using as a source in the AI
-                    calculations. The target id is (1+
-                    CURR-MINE-INDEX).")))
+   (routes :initarg :routes :initform nil
+           :accessor game-routes
+           :documentation "Routes between mines we are planning to claim.")
+   (curr-route :initarg :curr-route :initform nil
+               :accessor game-curr-route
+               :documentation "The route we are claiming now.")))
 
 (defun make-set (&key (size 100))
   (make-hash-table :test #'eq :size size))
@@ -318,13 +318,15 @@ such path doesn't exist."
   (let* ((id (cdr (assoc :punter assoc)))
          (punters-num (cdr (assoc :punters assoc)))
          (map (cdr (assoc :map assoc)))
-         (curr-mine-index (cdr (assoc :curr-mine-index assoc))))
+         (routes (cdr (assoc :routes assoc)))
+         (curr-route (cdr (assoc :curr-route assoc))))
     (multiple-value-bind (sites rivers mines) (assoc->map map)
       (make-instance 'game :my-id id :punters-num punters-num
                      :sites sites
                      :rivers rivers
                      :mines mines
-                     :curr-mine-index curr-mine-index))))
+                     :routes routes
+                     :curr-route curr-route))))
 
 (defun game->assoc (game)
   `((:punter . ,(game-my-id game)) (:punters . ,(game-punters-num game))
@@ -344,7 +346,9 @@ such path doesn't exist."
                   :for mine :across (game-mines game)
                   :collect (site-id mine))))
 
-    (:curr-mine-index . ,(game-curr-mine-index game))
+    
+    (:routes . ,(game-routes game))
+    (:curr-route . ,(game-curr-route game))
     ))
 
 (defun @test-assoc->game ()
@@ -444,6 +448,11 @@ such path doesn't exist."
                (when move
                  (return-from !descent move)))))))
 
+(defun combinations-of-2 (list)
+  (let ((result))
+    (map-combinations (lambda (c) (push c result)) list :length 2)
+    (reverse result)))
+
 (defun !path->move (game path)
   "Return (VALUES MOVE RIVER-INDEX) or NIL."
   (loop
@@ -460,43 +469,66 @@ such path doesn't exist."
                                             :target (site-id target))
                              river-index))))))
 
-(defun !connect-mines (game)
+(defun !connect-mines-impl (game)
+  "Return a (VALUES move :RETRY or :EXHAUSTED)."
   (msg "!Connecting mines...")
   (let* ((mines (game-mines game))
          (mines-num (length mines)))
     (when (> mines-num 1)
-      (with-accessors ((curr-mine-index game-curr-mine-index)) game
-        (unless curr-mine-index
-          (setf curr-mine-index 0))
-        (when (< (1+ curr-mine-index) mines-num)
-          (assert (> (length (game-mines game)) 1))
-          (let* ((mines (game-mines game))
-                 (curr-mine-index (game-curr-mine-index game))
-                 (source-mine (elt mines curr-mine-index))
-                 (target-mine (elt mines (1+ curr-mine-index)))
-                 (path (game-path game source-mine target-mine)))
-            (when path
-              (msg "Path found...")
-              (multiple-value-bind (move river-index) (!path->move game path)
-                (flet ((switch-to-next-mine-if-required ()
-                         (when (= (+ river-index 2) (length path))
-                           ;; We're claimed the last river on the path,
-                           ;; let's make the target mine as the source
-                           (incf (game-curr-mine-index game)))))
-                  (if (and move river-index)
-                      ;; We have a successfull move
+      (with-accessors ((routes game-routes) (curr-route game-curr-route))
+          game
+        (unless routes
+          (setf routes (combinations-of-2 (iota mines-num)))
+          (setf curr-route 0))
+        (if (< curr-route (length routes))
+            ;; We have rotes to explore...
+            (progn
+              (assert (> (length (game-mines game)) 1))
+              (let* ((mines (game-mines game))
+                     (route (elt routes curr-route))
+                     (source-mine (elt mines (first route)))
+                     (target-mine (elt mines (second route)))
+                     (path (game-path game source-mine target-mine)))
+                (flet ((switch-to-next-route-if-required
+                           (&optional path river-index)
+                         (when (or (or (not path) (not river-index))
+                                   (= (+ river-index 2) (length path)))
+                           (incf curr-route))))
+                  (if path
                       (progn
-                        (switch-to-next-mine-if-required)
-                        move)
-                      ;; No move
+                        (msg "Path found...")
+                        (multiple-value-bind (move river-index)
+                            (!path->move game path)
+                          (if (and move river-index)
+                              (progn
+                                (msg "We have a successfull move...")
+                                (switch-to-next-route-if-required path river-index)
+                                (values move nil))
+                              ;; 
+                              (progn
+                                (msg "The current path exhausted...")
+                                (switch-to-next-route-if-required)
+                                (values nil :retry)))))
                       (progn
-                        (switch-to-next-mine-if-required))))))))))))
+                        (msg "No path, switching to the next...")
+                        (switch-to-next-route-if-required)
+                        (values nil :retry))))))
+            (progn
+              (msg "No more routes, give up...")
+              (values nil :exhausted)))))))
+
+(defun !connect-mines (game)
+  (let (result)
+    (loop
+       :do (setf result (multiple-value-list
+                         (!connect-mines-impl game)))
+       :while (eq (second result) :retry))
+    (first result)))
 
 (defun !primary (game)
   "Primary algorithm"
   (msg "!Primary...")
-  (!connect-mines game)
-  )
+  (!connect-mines game))
 
 (defun !fallback (game)
   "Just trying to make some move..."
