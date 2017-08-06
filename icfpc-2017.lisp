@@ -416,37 +416,31 @@ such path doesn't exist."
       (let ((rivers (site-rivers site)))
         (loop
            :for river :across rivers
-           :do (progn
-                 (msg "RIVER ~a ~a"
-                      (site-id (river-source river))
-                      (site-id (river-target river)))
-                 (let ((claimer (river-claimed-by river)))
-                   (cond
-                     ((null claimer)
-                      (return-from !descent-impl
-                        (make-instance 'move :type :claim
-                                       :punter-id my-id
-                                       :source (site-id (river-source river))
-                                       :target (site-id (river-target river)))))
-                     ((and (= claimer my-id)
-                           (not (river-mark river)))
-                      (setf (river-mark river) t)
-                      (let ((move (!descent-impl (river-other-end river site)
-                                                  my-id
-                                                  (1+ curr-depth))))
-                        (when move (return-from !descent-impl move)))))))))))
+           :do (let ((claimer (river-claimed-by river)))
+                 (cond
+                   ((null claimer)
+                    (return-from !descent-impl
+                      (make-instance 'move :type :claim
+                                     :punter-id my-id
+                                     :source (site-id (river-source river))
+                                     :target (site-id (river-target river)))))
+                   ((and (= claimer my-id)
+                         (not (river-mark river)))
+                    (setf (river-mark river) t)
+                    (let ((move (!descent-impl (river-other-end river site)
+                                               my-id
+                                               (1+ curr-depth))))
+                      (when move (return-from !descent-impl move))))))))))
 
 (defun !descent (game)
   (msg "!Descent...")
   (let* ((mines (game-mines game)))
     (loop
        :for mine :across mines
-       :do (progn
-             (msg "MINE ~a" (site-id mine))
-             (let ((move (!descent-impl mine (game-my-id game) 0)))
-               (game-clean-rivers-marks game)
-               (when move
-                 (return-from !descent move)))))))
+       :do (let ((move (!descent-impl mine (game-my-id game) 0)))
+             (game-clean-rivers-marks game)
+             (when move
+               (return-from !descent move))))))
 
 (defun combinations-of-2 (list)
   (let ((result))
