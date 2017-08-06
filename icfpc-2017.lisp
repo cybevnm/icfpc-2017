@@ -529,12 +529,26 @@ such path doesn't exist."
   (msg "!Fallbback...")
   (!descent game))
 
+(defun !hinder (game)
+  (msg "!Hinder...")
+  (loop
+     :for river :across (game-rivers game)
+     :do (unless (river-claimed-by river)
+           (return-from !hinder
+             (make-instance 'move :type :claim
+                            :punter-id (game-my-id game)
+                            :source (site-id (river-source river))
+                            :target (site-id (river-target river)))))))
+
 (defun !pass (&optional (game *curr-game*))
   (make-instance 'move :type :pass
                  :punter-id (game-my-id game)))
 
 (defun !ai (&optional (game *curr-game*))
-  (or (!primary game) (!fallback game) (!pass game)))
+  (or (!primary game)
+      (!fallback game)
+      (!hinder game)
+      (!pass game)))
 
 (defun send-pass-message (game type &optional (stream-out *curr-stream-out*))
   (let ((pass-chunk `(:pass . ((:punter . ,(game-my-id *curr-game*)))))
