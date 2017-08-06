@@ -406,7 +406,7 @@
              (game-apply-moves *curr-game* moves)
              (when *render-pics* 
                (render-cl-dot-graph *curr-game*
-                                    (format nil "pic-~a.png" pic-index))
+                                    (format nil "pic/pic-~a.png" pic-index))
                (incf pic-index))
              (if scores
                  (progn
