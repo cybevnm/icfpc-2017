@@ -516,7 +516,6 @@
             (list (river-source river) (river-target river)
                   (let* ((claimer (river-claimed-by river))
                          (color (cdr (assoc claimer colors))))
-                    (msg "COLOR ~a" color)
                     `(:color ,(cond
                                 ((null claimer) :black)
                                 ((= claimer (game-my-id graph)) :blue)
