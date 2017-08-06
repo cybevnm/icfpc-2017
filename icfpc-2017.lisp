@@ -102,7 +102,14 @@
    (rivers :initarg :rivers :reader game-rivers
            :documentation "Array of rivers")
    (mines :initarg :mines :reader game-mines
-          :documentation "Array of sites which are mines")))
+          :documentation "Array of sites which are mines")
+
+   (curr-mine-index :initarg :curr-mine-index :initform nil
+                    :accessor game-curr-mine-index
+                    :documentation "This is an index of mine we
+                    currently using as a source in the AI
+                    calculations. The target id is (1+
+                    CURR-MINE-INDEX).")))
 
 (defun make-set (&key (size 100))
   (make-hash-table :test #'eq :size size))
@@ -308,12 +315,14 @@ such path doesn't exist."
 (defun assoc->game (assoc)
   (let* ((id (cdr (assoc :punter assoc)))
          (punters-num (cdr (assoc :punters assoc)))
-         (map (cdr (assoc :map assoc))))
+         (map (cdr (assoc :map assoc)))
+         (curr-mine-index (cdr (assoc :curr-mine-index assoc))))
     (multiple-value-bind (sites rivers mines) (assoc->map map)
       (make-instance 'game :my-id id :punters-num punters-num
                      :sites sites
                      :rivers rivers
-                     :mines mines))))
+                     :mines mines
+                     :curr-mine-index curr-mine-index))))
 
 (defun game->assoc (game)
   `((:punter . ,(game-my-id game)) (:punters . ,(game-punters-num game))
@@ -331,7 +340,10 @@ such path doesn't exist."
                               (:mark . ,(river-mark river)))))
      (:mines ,@(loop
                   :for mine :across (game-mines game)
-                  :collect (site-id mine))))))
+                  :collect (site-id mine))))
+
+    (:curr-mine-index . ,(game-curr-mine-index game))
+    ))
 
 (defun @test-assoc->game ()
   (let* ((assoc
@@ -430,34 +442,59 @@ such path doesn't exist."
                (when move
                  (return-from !descent move)))))))
 
+(defun !path->move (game path)
+  "Return (VALUES MOVE RIVER-INDEX) or NIL."
+  (loop
+     :for river-index :from 0 :below (1- (length path))
+     :do (let* ((source (elt path river-index))
+                (target (elt path (1+ river-index)))
+                (river (game-find-common-river source target))
+                (claimer (river-claimed-by river)))
+           (unless claimer
+             (return (values (make-instance 'move
+                                            :punter-id (game-my-id game)
+                                            :type :claim
+                                            :source (site-id source)
+                                            :target (site-id target))
+                             river-index))))))
+
 (defun !connect-mines (game)
   (msg "!Connecting mines...")
-  (assert (> (length (game-mines game)) 1))
   (let* ((mines (game-mines game))
-         (source-mine (elt mines 0))
-         (target-mine (elt mines 1))
-         (path (game-path game source-mine target-mine)))
-    (when path
-      (msg "Path found...")
-      (loop
-         :for x :from 0 :below (1- (length path))
-         :do (let* ((source (elt path x))
-                    (target (elt path (1+ x)))
-                    (river (game-find-common-river source target))
-                    (claimer (river-claimed-by river)))
-               (unless claimer
-                 (return (make-instance 'move
-                                        :punter-id (game-my-id game)
-                                        :type :claim
-                                        :source (site-id source)
-                                        :target (site-id target)))))))))
+         (mines-num (length mines)))
+    (when (> mines-num 1)
+      (with-accessors ((curr-mine-index game-curr-mine-index)) game
+        (unless curr-mine-index
+          (setf curr-mine-index 0))
+        (when (< (1+ curr-mine-index) mines-num)
+          (assert (> (length (game-mines game)) 1))
+          (let* ((mines (game-mines game))
+                 (curr-mine-index (game-curr-mine-index game))
+                 (source-mine (elt mines curr-mine-index))
+                 (target-mine (elt mines (1+ curr-mine-index)))
+                 (path (game-path game source-mine target-mine)))
+            (when path
+              (msg "Path found...")
+              (multiple-value-bind (move river-index) (!path->move game path)
+                (flet ((switch-to-next-mine-if-required ()
+                         (when (= (+ river-index 2) (length path))
+                           ;; We're claimed the last river on the path,
+                           ;; let's make the target mine as the source
+                           (incf (game-curr-mine-index game)))))
+                  (if (and move river-index)
+                      ;; We have a successfull move
+                      (progn
+                        (switch-to-next-mine-if-required)
+                        move)
+                      ;; No move
+                      (progn
+                        (switch-to-next-mine-if-required))))))))))))
 
 (defun !primary (game)
   "Primary algorithm"
   (msg "!Primary...")
-  (let* ((mines (game-mines game)))
-    (when (> (length mines) 1)
-      (!connect-mines game))))
+  (!connect-mines game)
+  )
 
 (defun !fallback (game)
   "Just trying to make some move..."
