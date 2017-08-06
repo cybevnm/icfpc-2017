@@ -33,7 +33,7 @@
   (json:decode-json-from-string decodable))
 
 
-(defun send-message (encodable &optional (stream-out *curr-stream*))
+(defun send-message (encodable &optional (stream-out *curr-stream-out*))
   (let ((encoded (encode-message encodable)))
     ;(msg "Sending: \"~a\"..." encoded)
     (send encoded stream-out)))
@@ -170,7 +170,7 @@ such path doesn't exist."
                           (setf (gethash adjacent links) curr)))))))))
 
 (defun game-path (game source target)
-  (path-bfs game source target))
+  (game-path-bfs game source target))
 
 (defun game-find-river-by-source-id-and-target-id (game source target)
   (find-if (lambda (river)
@@ -425,7 +425,7 @@ such path doesn't exist."
                      ((and (= claimer my-id)
                            (not (river-mark river)))
                       (setf (river-mark river) t)
-                      (let ((move (!claim-descent (river-other-end river site)
+                      (let ((move (!descent-impl (river-other-end river site)
                                                   my-id
                                                   (1+ curr-depth))))
                         (when move (return-from !descent-impl move)))))))))))
@@ -437,7 +437,7 @@ such path doesn't exist."
        :for mine :across mines
        :do (progn
              (msg "MINE ~a" (site-id mine))
-             (let ((move (!claim-descent mine (game-my-id game) 0)))
+             (let ((move (!descent-impl mine (game-my-id game) 0)))
                (game-clean-rivers-marks game)
                (when move
                  (return-from !descent move)))))))
@@ -617,7 +617,7 @@ such path doesn't exist."
   (force-output stream-out)
   (values))
 
-(defun receive (len &optional (stream-in *curr-stream*))
+(defun receive (len &optional (stream-in *curr-stream-in*))
   (let* ((seq (make-array len
                           :element-type (stream-element-type stream-in)
                           :fill-pointer t))
@@ -625,7 +625,7 @@ such path doesn't exist."
          (subseq (subseq seq 0 len)))
     subseq))
 
-(defun receive-char (&optional (stream-in *curr-stream*) )
+(defun receive-char (&optional (stream-in *curr-stream-in*))
   (read-char stream-in))
 
 (defun main-online (&key (host *host*) (port *port*) (name *name*))
