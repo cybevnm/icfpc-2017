@@ -757,12 +757,7 @@ account."
                                :target (site-id (elt path (1+ x))))
                 moves))
         (game-apply-moves game moves)
-        (render-game-if-necessary game :name "bfs")
-        ;; (loop :for x :from 0 :below iterations-num
-        ;;    :do (let ((move (!ai game)))
-        ;;          (game-apply-move game move)
-        ;;          (render-game-if-necessary game :index x)))
-        ))))
+        (render-game-if-necessary game :name "bfs")))))
 
 (defun main-test-ai (&key (iterations-num 20) (map "sample.json"))
   (let ((my-id 0)
