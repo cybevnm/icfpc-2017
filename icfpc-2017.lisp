@@ -529,16 +529,34 @@ such path doesn't exist."
   (msg "!Fallbback...")
   (!descent game))
 
-(defun !hinder (game)
-  (msg "!Hinder...")
+(defun !hinder-random (game)
+  (msg "!Hinder random...")
   (loop
      :for river :across (game-rivers game)
      :do (unless (river-claimed-by river)
-           (return-from !hinder
+           (return-from !hinder-random
              (make-instance 'move :type :claim
                             :punter-id (game-my-id game)
                             :source (site-id (river-source river))
                             :target (site-id (river-target river)))))))
+
+(defun !hinder-block-mines (game)
+  "Will be usefull against non-options enabled players only ?"
+  (loop
+     :for mine :across (game-mines game)
+     :do (loop
+            :for river :across (site-rivers mine)
+            :do (unless (river-claimed-by river)
+                  (return-from !hinder-block-mines
+                    (make-instance 'move :type :claim
+                                   :punter-id (game-my-id game)
+                                   :source (site-id (river-source river))
+                                   :target (site-id (river-target river))))))))
+
+(defun !hinder (game)
+  (msg "!Hinder")
+  (or (!hinder-block-mines game)
+      (!hinder-random game)))
 
 (defun !pass (&optional (game *curr-game*))
   (make-instance 'move :type :pass
