@@ -461,7 +461,7 @@ account."
                    ;; The river is ours, descent.
                    ((= (river-claimed-by river) (game-my-id game))
                     (let ((move
-                           (!greedy-impl game mine (river-other-end river site)
+                           (!descent-impl game mine (river-other-end river site)
                                          (1+ curr-depth))))
                       (when move (return move))))
                    ;; The river is taken, ignore.
