@@ -76,7 +76,10 @@
    (mine :initform nil :accessor site-mine-p
          :documentation "TRUE if the site is a mine.")
    (note :initform nil :accessor site-note
-         :documentation "Visualisation puts this on nodes.")))
+         :documentation "Visualisation puts this on nodes.")
+
+   (profit :initform 0 :accessor site-profit
+           :documentation "Greedy algorithm cache.")))
 
 (defclass river ()
   ((begin :initarg :source :reader river-source
@@ -130,9 +133,11 @@
 (defun make-queue ()
   (make-container 'basic-queue))
 
-(defun game-path-bfs (game source target)
+(defun game-path-bfs (game source target &key (shortest nil))
   "Return array of successive sites from SOURCE to TARGET, or NIL if
-such path doesn't exist."
+such path doesn't exist. If SHORTEST is T then river claimers are
+completelly ignored. Otherwise only a path we may reach is taken into
+account."
   (assert game)
   (assert source)
   (assert target)
@@ -165,7 +170,8 @@ such path doesn't exist."
                   :for river :across (site-rivers curr)
                   :do (let ((adjacent (river-other-end river curr))
                             (claimer (river-claimed-by river)))
-                        (when (and (or (not claimer) (= claimer my-id))
+                        (when (and (or shortest
+                                       (or (not claimer) (= claimer my-id)))
                                    (not (set-find set adjacent)))
                           (set-add set adjacent)
                           (enqueue queue adjacent)
@@ -410,37 +416,78 @@ such path doesn't exist."
 
 
 (defparameter *max-depth* 2)
-(defun !descent-impl (site my-id curr-depth)
-  (if (> curr-depth *max-depth*)
-      nil
-      (let ((rivers (site-rivers site)))
-        (loop
-           :for river :across rivers
-           :do (let ((claimer (river-claimed-by river)))
-                 (cond
-                   ((null claimer)
-                    (return-from !descent-impl
+
+(defun !descent-impl (game mine site curr-depth)
+  (when (<= curr-depth *max-depth*)
+    (let* ((rivers (site-rivers site))
+           (targets
+            (remove mine
+                    (map '(vector t)
+                         (lambda (river)
+                           (river-other-end river site))
+                         rivers))))
+      (when (> (length targets) 0)
+        ;; Calc profits.
+        (map nil (lambda (target)
+                   (let ((path (game-path-bfs game mine target
+                                              :shortest t)))
+                     (setf (site-profit target)
+                           (if path (length path) 0))))
+             targets)
+        (let* ((targets-sorted
+                (sort targets
+                      (lambda (a b) (> (site-profit a) (site-profit b)))))
+               ;(biggest-profit (site-profit (elt targets-sorted 0)))
+               (most-profitable-targets
+                (subseq targets-sorted
+                        0 (1+ (floor (length targets-sorted) 2))))
+               (most-profitable-rivers
+                (map '(vector t)
+                     (lambda (target)
+                       (game-find-common-river site target))
+                     most-profitable-targets)))
+
+          (loop
+             :for river :across most-profitable-rivers
+             :do (cond
+                   ;; The river unclaimed, claim it.
+                   ((not (river-claimed-by river))
+                    (return
                       (make-instance 'move :type :claim
-                                     :punter-id my-id
-                                     :source (site-id (river-source river))
-                                     :target (site-id (river-target river)))))
-                   ((and (= claimer my-id)
-                         (not (river-mark river)))
-                    (setf (river-mark river) t)
-                    (let ((move (!descent-impl (river-other-end river site)
-                                               my-id
-                                               (1+ curr-depth))))
-                      (when move (return-from !descent-impl move))))))))))
+                                     :punter-id (game-my-id game)
+                                     :source (site-id site)
+                                     :target
+                                     (site-id (river-other-end river site)))))
+                   ;; The river is ours, descent.
+                   ((= (river-claimed-by river) (game-my-id game))
+                    (let ((move
+                           (!greedy-impl game mine (river-other-end river site)
+                                         (1+ curr-depth))))
+                      (when move (return move))))
+                   ;; The river is taken, ignore.
+                   (t
+                    (return nil)))))))))
 
 (defun !descent (game)
   (msg "!Descent...")
   (let* ((mines (game-mines game)))
     (loop
        :for mine :across mines
-       :do (let ((move (!descent-impl mine (game-my-id game) 0)))
-             (game-clean-rivers-marks game)
-             (when move
-               (return-from !descent move))))))
+       :do (progn
+             ;; Block mine
+             (loop
+                :for river :across (site-rivers mine)
+                :do (unless (river-claimed-by river)
+                      (return-from !descent
+                        (make-instance 'move :type :claim
+                                       :punter-id (game-my-id game)
+                                       :source (site-id (river-source river))
+                                       :target (site-id (river-target river))))))
+             ;; Descent
+             (let ((move (!descent-impl game mine mine 0)))
+               (game-clean-rivers-marks game)
+               (when move
+                 (return-from !descent move)))))))
 
 (defun combinations-of-2 (list)
   (let ((result))
@@ -540,23 +587,9 @@ such path doesn't exist."
                             :source (site-id (river-source river))
                             :target (site-id (river-target river)))))))
 
-(defun !hinder-block-mines (game)
-  "Will be usefull against non-options enabled players only ?"
-  (loop
-     :for mine :across (game-mines game)
-     :do (loop
-            :for river :across (site-rivers mine)
-            :do (unless (river-claimed-by river)
-                  (return-from !hinder-block-mines
-                    (make-instance 'move :type :claim
-                                   :punter-id (game-my-id game)
-                                   :source (site-id (river-source river))
-                                   :target (site-id (river-target river))))))))
-
 (defun !hinder (game)
   (msg "!Hinder")
-  (or (!hinder-block-mines game)
-      (!hinder-random game)))
+  (!hinder-random game))
 
 (defun !pass (&optional (game *curr-game*))
   (make-instance 'move :type :pass
