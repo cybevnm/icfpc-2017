@@ -79,7 +79,7 @@
          :documentation "Visualisation puts this on nodes.")
 
    (profit :initform 0 :accessor site-profit
-           :documentation "Greedy algorithm cache.")))
+           :documentation "Descent strategy cache.")))
 
 (defclass river ()
   ((begin :initarg :source :reader river-source
@@ -450,7 +450,7 @@ account."
           (loop
              :for river :across most-profitable-rivers
              :do (cond
-                   ;; The river unclaimed, claim it.
+                   ;; The river is unclaimed, claim it.
                    ((not (river-claimed-by river))
                     (return
                       (make-instance 'move :type :claim
