@@ -472,7 +472,7 @@ such path doesn't exist."
       (with-accessors ((routes game-routes) (curr-route game-curr-route))
           game
         (unless routes
-          (setf routes (shuffle (combinations-of-2 (iota mines-num))))
+          (setf routes (combinations-of-2 (shuffle (iota mines-num))))
           (setf curr-route 0))
         (if (< curr-route (length routes))
             ;; We have rotes to explore...
