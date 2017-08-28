@@ -5,7 +5,7 @@
   (:use :cl :alexandria :cl-containers))
 (in-package :icfpc-2017)
 
-(defparameter *name* "cvnm")
+(defparameter *name* "user")
 (defparameter *host* "punter.inf.ed.ac.uk")
 (defparameter *port* 9064)
 (defparameter *curr-socket* nil)
